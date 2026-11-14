@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Clearance</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header id="topbar" class="topbar"></header>
+  <main>
+    <div id="content"><p class="muted">Loading...</p></div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script>
+    const session = requireRole("student");
+    if (session) {
+    mountTopbar();
+    const content = document.getElementById("content");
+
+    function renderStart() {
+      content.innerHTML = `
+        <div class="card">
+          <h2>Start your clearance</h2>
+          <p>When you start, every office receives your request at the same time and can approve it
+             independently. You can follow each one here.</p>
+          <button id="start-btn">Start clearance</button>
+          <div class="msg" id="start-msg" role="status" aria-live="polite"></div>
+        </div>`;
+      document.getElementById("start-btn").addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try { await api("/clearance", { method: "POST" }); await load(); }
+        catch (err) { showMsg(document.getElementById("start-msg"), err.message); }
+        finally { button.disabled = false; }
+      });
+    }
+
+    function renderRequest(request, approvals) {
+      const done = approvals.filter((a) => a.status === "approved").length;
+      const percent = approvals.length ? Math.round((done / approvals.length) * 100) : 0;
+
+      let html = `
+        <div class="card">
+          <h2>My clearance ${badge(request.status)}</h2>
+          <p class="muted">Started ${esc(fmtDate(request.createdAt))}</p>
+          <div class="progress" role="progressbar" aria-label="Office approvals" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><div style="width:${percent}%"></div></div>
+          <p><strong>${done} of ${approvals.length}</strong> offices have approved.</p>
+        </div>`;
+
+      if (request.status === "cleared") {
+        const link = new URL(`verify.html?code=${encodeURIComponent(request.certificateCode)}`, location.href).href;
+        html += `
+          <div class="card certificate">
+            <h2>Clearance certificate</h2>
+            <p><strong>${esc(session.user.fullName)}</strong> (${esc(session.user.regNumber)})
+               has been cleared by all offices.</p>
+            <p class="muted">Cleared on ${esc(fmtDate(request.completedAt))}</p>
+            <div>Certificate code</div>
+            <div class="code">${esc(request.certificateCode)}</div>
+            <p class="muted">Verify at: <a href="${esc(link)}">${esc(link)}</a></p>
+            <button class="no-print" onclick="window.print()">Print certificate</button>
+          </div>`;
+      }
+
+      html += `
+        <div class="card">
+          <h3>Status at each office</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Office</th><th>Status</th><th>Note</th><th>Updated</th></tr></thead>
+            <tbody>
+              ${approvals.map((a) => `
+                <tr>
+                  <td>${esc(a.department)}</td>
+                  <td>${badge(a.status)}</td>
+                  <td>${esc(a.reason || "")}</td>
+                  <td>${esc(fmtDate(a.decidedAt))}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table></div>
+          <p class="muted">If an office rejected your request, fix the issue it names, then ask that
+             office to review it again.</p>
+        </div>`;
+      content.innerHTML = html;
+    }
+
+    async function load() {
+      try {
+        const data = await api("/clearance/mine");
+        if (!data.request) renderStart();
+        else renderRequest(data.request, data.approvals);
+      } catch (err) {
+        content.innerHTML = `<div class="card"><div class="msg show error">${esc(err.message)}</div></div>`;
+      }
+    }
+    load();
+    }
+  </script>
+</body>
+</html>

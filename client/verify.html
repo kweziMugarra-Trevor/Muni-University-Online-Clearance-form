@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verify Clearance Certificate</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="hero"><h1>Certificate verification</h1></div>
+  <main class="auth">
+    <div class="card" id="result" role="status" aria-live="polite"><p class="muted">Checking...</p></div>
+    <p><a href="index.html">Back to log in</a></p>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script>
+    const code = new URLSearchParams(location.search).get("code");
+    const box = document.getElementById("result");
+
+    if (!code) {
+      box.innerHTML = '<div class="msg show error">No certificate code was provided.</div>';
+    } else {
+      fetch(API + "/clearance/verify/" + encodeURIComponent(code))
+        .then((res) => res.json().then((data) => ({ status: res.status, ok: res.ok, data })))
+        .then(({ status, ok, data }) => {
+          if (!ok && status !== 404) throw new Error("Verification is temporarily unavailable.");
+          box.innerHTML = ok && data.valid
+            ? `<div class="msg show success"><strong>Valid certificate</strong></div>
+               <p><strong>${esc(data.full_name)}</strong><br>
+                  Reg. number: ${esc(data.reg_number)}<br>
+                  ${esc(data.university)}<br>
+                  Cleared on ${esc(fmtDate(data.completed_at))}</p>`
+            : '<div class="msg show error"><strong>Certificate not found.</strong> Check the code or contact the university.</div>';
+        })
+        .catch(() => { box.innerHTML = '<div class="msg show error">Could not verify the certificate. Please try again later.</div>'; });
+    }
+  </script>
+</body>
+</html>

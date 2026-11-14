@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office Queue</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header id="topbar" class="topbar"></header>
+  <main>
+    <div class="card">
+      <h2>Students waiting at your office</h2>
+      <div class="tabs">
+        <button type="button" data-status="pending" class="active" aria-pressed="true">Pending</button>
+        <button type="button" data-status="approved" aria-pressed="false">Approved</button>
+        <button type="button" data-status="rejected" aria-pressed="false">Rejected</button>
+      </div>
+      <div class="table-wrap" id="queue"><p class="muted">Loading...</p></div>
+      <div class="msg" id="queue-msg" role="status" aria-live="polite"></div>
+    </div>
+  </main>
+
+  <dialog id="reject-dialog" aria-labelledby="reject-title">
+    <h3 id="reject-title">Reject request</h3>
+    <p class="muted">Tell the student what they must fix (for example: "Unreturned library book").</p>
+    <label for="reject-reason">Reason for rejection</label>
+    <textarea id="reject-reason" rows="3" maxlength="300" required></textarea>
+    <div class="msg" id="reject-msg" role="status" aria-live="polite"></div>
+    <div class="row">
+      <button type="button" class="secondary" id="reject-cancel">Cancel</button>
+      <button type="button" class="danger" id="reject-confirm">Reject</button>
+    </div>
+  </dialog>
+
+  <script src="js/api.js"></script>
+  <script>
+    if (requireRole("officer")) {
+    mountTopbar();
+
+    let currentStatus = "pending";
+    let rejectingId = null;
+    const queue = document.getElementById("queue");
+    const queueMsg = document.getElementById("queue-msg");
+    const dialog = document.getElementById("reject-dialog");
+
+    document.querySelectorAll(".tabs button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tabs button").forEach((b) => { b.classList.remove("active"); b.setAttribute("aria-pressed", "false"); });
+        btn.classList.add("active");
+        btn.setAttribute("aria-pressed", "true");
+        currentStatus = btn.dataset.status;
+        load();
+      });
+    });
+
+    let loadVersion = 0;
+    async function load() {
+      const version = ++loadVersion;
+      const status = currentStatus;
+      queueMsg.className = "msg";
+      queue.innerHTML = '<p class="muted">Loading...</p>';
+      try {
+        const rows = await api("/officer/queue?status=" + encodeURIComponent(status));
+        if (version !== loadVersion) return;
+        if (rows.length === 0) {
+          queue.innerHTML = `<p class="muted">No ${esc(status)} requests.</p>`;
+          return;
+        }
+        queue.innerHTML = `
+          <table>
+            <thead><tr><th>Student</th><th>Reg. number</th><th>Requested</th><th>Note</th><th></th></tr></thead>
+            <tbody>
+              ${rows.map((r) => `
+                <tr>
+                  <td>${esc(r.studentName)}</td>
+                  <td>${esc(r.regNumber)}</td>
+                  <td>${esc(fmtDate(r.requestedAt))}</td>
+                  <td>${esc(r.reason || "")}</td>
+                  <td>
+                    ${r.status !== "approved" ? `<button class="small" data-approve="${esc(r.approvalId)}" aria-label="Approve ${esc(r.studentName)}">Approve</button>` : ""}
+                    ${r.status !== "rejected" ? `<button class="small danger" data-reject="${esc(r.approvalId)}" aria-label="Reject ${esc(r.studentName)}">Reject</button>` : ""}
+                  </td>
+                </tr>`).join("")}
+            </tbody>
+          </table>`;
+      } catch (err) { if (version === loadVersion) { queue.innerHTML = ""; showMsg(queueMsg, err.message); } }
+    }
+
+    queue.addEventListener("click", async (e) => {
+      const approveId = e.target.dataset.approve;
+      const rejectId = e.target.dataset.reject;
+      if (approveId) {
+        e.target.disabled = true;
+        try { await api("/officer/decide/" + encodeURIComponent(approveId), { method: "POST", body: { decision: "approved" } }); await load(); }
+        catch (err) { showMsg(queueMsg, err.message); }
+        finally { e.target.disabled = false; }
+      }
+      if (rejectId) {
+        rejectingId = rejectId;
+        document.getElementById("reject-reason").value = "";
+        document.getElementById("reject-msg").className = "msg";
+        dialog.showModal();
+      }
+    });
+
+    document.getElementById("reject-cancel").addEventListener("click", () => dialog.close());
+    document.getElementById("reject-confirm").addEventListener("click", async () => {
+      const confirm = document.getElementById("reject-confirm");
+      if (!document.getElementById("reject-reason").value.trim()) {
+        showMsg(document.getElementById("reject-msg"), "Please give a reason for rejecting.");
+        document.getElementById("reject-reason").focus();
+        return;
+      }
+      confirm.disabled = true;
+      try {
+        await api("/officer/decide/" + encodeURIComponent(rejectingId), {
+          method: "POST",
+          body: { decision: "rejected", reason: document.getElementById("reject-reason").value },
+        });
+        dialog.close();
+        load();
+      } catch (err) { showMsg(document.getElementById("reject-msg"), err.message); }
+      finally { confirm.disabled = false; }
+    });
+
+    load();
+    }
+  </script>
+</body>
+</html>

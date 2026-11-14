@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Online Clearance System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="hero">
+    <h1>Online Clearance System</h1>
+    <p class="muted">Follow your clearance requests from your phone or laptop.</p>
+  </div>
+
+  <main class="auth">
+    <div class="tabs">
+      <button id="tab-login" class="active" type="button" aria-pressed="true" aria-controls="login-card">Log in</button>
+      <button id="tab-register" type="button" aria-pressed="false" aria-controls="register-card">Student sign up</button>
+    </div>
+
+    <div class="card" id="login-card">
+      <form id="login-form">
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" required autocomplete="username">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" required autocomplete="current-password">
+        <button type="submit">Log in</button>
+        <div class="msg" id="login-msg" role="status" aria-live="polite"></div>
+      </form>
+    </div>
+
+    <div class="card" id="register-card" hidden>
+      <form id="register-form">
+        <label for="reg-name">Full name</label>
+        <input id="reg-name" required>
+        <label for="reg-number">Registration number</label>
+        <input id="reg-number" required>
+        <label for="reg-uni">University</label>
+        <select id="reg-uni" required disabled><option value="">Loading universities...</option></select>
+        <p class="muted" id="university-msg" role="status" aria-live="polite"></p>
+        <button type="button" class="secondary small" id="retry-universities" hidden>Retry loading universities</button>
+        <label for="reg-email">Email</label>
+        <input id="reg-email" type="email" required autocomplete="username">
+        <label for="reg-password">Password (at least 8 characters)</label>
+        <input id="reg-password" type="password" minlength="8" required autocomplete="new-password">
+        <button type="submit">Create account</button>
+        <div class="msg" id="register-msg" role="status" aria-live="polite"></div>
+      </form>
+    </div>
+    <p class="muted">Officers and admins: use the account your university admin created for you.</p>
+    <p><a href="verify.html">Verify a certificate</a></p>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script>
+    // Already logged in? Go straight to your dashboard.
+    const existing = getSession();
+    if (existing) location.href = homeFor(existing.user.role);
+
+    const loginCard = document.getElementById("login-card");
+    const registerCard = document.getElementById("register-card");
+    const tabLogin = document.getElementById("tab-login");
+    const tabRegister = document.getElementById("tab-register");
+
+    function showTab(which) {
+      const isLogin = which === "login";
+      loginCard.hidden = !isLogin;
+      registerCard.hidden = isLogin;
+      tabLogin.classList.toggle("active", isLogin);
+      tabRegister.classList.toggle("active", !isLogin);
+      tabLogin.setAttribute("aria-pressed", String(isLogin));
+      tabRegister.setAttribute("aria-pressed", String(!isLogin));
+    }
+    tabLogin.addEventListener("click", () => showTab("login"));
+    tabRegister.addEventListener("click", () => showTab("register"));
+
+    // Fill the university dropdown
+    async function loadUniversities() {
+      const select = document.getElementById("reg-uni");
+      const message = document.getElementById("university-msg");
+      const retry = document.getElementById("retry-universities");
+      select.disabled = true;
+      select.innerHTML = '<option value="">Loading universities...</option>';
+      message.textContent = "";
+      retry.hidden = true;
+      try {
+        const list = await api("/auth/universities");
+        select.innerHTML = '<option value="">Choose your university</option>' +
+          list.map((u) => `<option value="${esc(u.id)}">${esc(u.name)}</option>`).join("");
+        select.disabled = !list.length;
+        if (!list.length) message.textContent = "No universities are available. Contact an administrator.";
+      } catch (err) {
+        select.innerHTML = '<option value="">Universities unavailable</option>';
+        message.textContent = err.message;
+        retry.hidden = false;
+      }
+    }
+    document.getElementById("retry-universities").addEventListener("click", loadUniversities);
+    loadUniversities();
+
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById("login-msg");
+      try {
+        const data = await api("/auth/login", {
+          method: "POST",
+          body: {
+            email: document.getElementById("login-email").value,
+            password: document.getElementById("login-password").value,
+          },
+        });
+        saveSession(data);
+        location.href = homeFor(data.user.role);
+      } catch (err) { showMsg(msg, err.message); }
+    });
+
+    document.getElementById("register-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById("register-msg");
+      if (document.getElementById("reg-uni").disabled) { showMsg(msg, "Universities are not available yet. Please try again."); return; }
+      try {
+        const data = await api("/auth/register", {
+          method: "POST",
+          body: {
+            fullName: document.getElementById("reg-name").value,
+            regNumber: document.getElementById("reg-number").value,
+            universityId: document.getElementById("reg-uni").value,
+            email: document.getElementById("reg-email").value,
+            password: document.getElementById("reg-password").value,
+          },
+        });
+        e.target.reset();
+        showTab("login");
+        showMsg(document.getElementById("login-msg"), data.message, "success");
+      } catch (err) { showMsg(msg, err.message); }
+    });
+  </script>
+</body>
+</html>

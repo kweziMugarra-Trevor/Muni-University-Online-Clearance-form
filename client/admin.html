@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header id="topbar" class="topbar"></header>
+  <main>
+    <div class="grid2">
+      <div class="card">
+        <h3>Add an office</h3>
+        <form id="office-form">
+          <label for="office-name">Office name</label>
+          <input id="office-name" required>
+          <label for="office-desc">What it checks (optional)</label>
+          <input id="office-desc">
+          <button type="submit">Add office</button>
+          <div class="msg" id="office-msg" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3>Create an officer account</h3>
+        <form id="officer-form">
+          <label for="off-name">Full name</label>
+          <input id="off-name" required>
+          <label for="off-email">Email</label>
+          <input id="off-email" type="email" required>
+          <label for="off-password">Temporary password (at least 8 characters)</label>
+          <input id="off-password" type="password" minlength="8" required>
+          <label for="off-dept">Office</label>
+          <select id="off-dept" required disabled><option value="">Loading offices...</option></select>
+          <p class="muted" id="offices-msg" role="status" aria-live="polite"></p>
+          <button type="button" class="secondary small" id="retry-offices" hidden>Retry loading offices</button>
+          <button type="submit">Create officer</button>
+          <div class="msg" id="officer-msg" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>All clearance requests</h3>
+      <div class="table-wrap" id="requests"><p class="muted">Loading...</p></div>
+    </div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script>
+    if (requireRole("admin")) {
+    mountTopbar();
+
+    async function loadOffices() {
+      const select = document.getElementById("off-dept");
+      const msg = document.getElementById("offices-msg");
+      const retry = document.getElementById("retry-offices");
+      select.disabled = true;
+      select.innerHTML = '<option value="">Loading offices...</option>';
+      msg.textContent = "";
+      retry.hidden = true;
+      try {
+        const list = await api("/admin/departments");
+        select.innerHTML = '<option value="">Choose an office</option>' +
+          list.map((d) => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join("");
+        select.disabled = !list.length;
+        if (!list.length) msg.textContent = "Add an office before creating an officer.";
+      } catch (err) {
+        select.innerHTML = '<option value="">Offices unavailable</option>';
+        msg.textContent = err.message;
+        retry.hidden = false;
+      }
+    }
+
+    async function loadRequests() {
+      const box = document.getElementById("requests");
+      try {
+        const rows = await api("/admin/requests");
+        box.innerHTML = rows.length === 0
+          ? '<p class="muted">No requests yet.</p>'
+          : `<table>
+              <thead><tr><th>Student</th><th>Reg. number</th><th>Status</th><th>Started</th><th>Completed</th></tr></thead>
+              <tbody>
+                ${rows.map((r) => `
+                  <tr>
+                    <td>${esc(r.studentName)}</td><td>${esc(r.regNumber)}</td>
+                    <td>${badge(r.status)}</td>
+                    <td>${esc(fmtDate(r.createdAt))}</td><td>${esc(fmtDate(r.completedAt))}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>`;
+      } catch (err) { box.innerHTML = `<div class="msg show error">${esc(err.message)}</div>`; }
+    }
+
+    document.getElementById("office-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById("office-msg");
+      try {
+        await api("/admin/departments", {
+          method: "POST",
+          body: { name: document.getElementById("office-name").value, description: document.getElementById("office-desc").value },
+        });
+        showMsg(msg, "Office added.", "success");
+        e.target.reset();
+        loadOffices();
+      } catch (err) { showMsg(msg, err.message); }
+    });
+
+    document.getElementById("officer-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById("officer-msg");
+      if (document.getElementById("off-dept").disabled) { showMsg(msg, "Offices are not available yet. Please try again."); return; }
+      try {
+        const data = await api("/admin/officers", {
+          method: "POST",
+          body: {
+            fullName: document.getElementById("off-name").value,
+            email: document.getElementById("off-email").value,
+            password: document.getElementById("off-password").value,
+            departmentId: document.getElementById("off-dept").value,
+          },
+        });
+        showMsg(msg, data.message, "success");
+        e.target.reset();
+      } catch (err) { showMsg(msg, err.message); }
+    });
+
+    document.getElementById("retry-offices").addEventListener("click", loadOffices);
+    loadOffices();
+    loadRequests();
+    }
+  </script>
+</body>
+</html>
